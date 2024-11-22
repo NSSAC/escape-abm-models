@@ -1,0 +1,508 @@
+# SMH Covid-19 Scenario 6
+# This model has been translated form the corresponding EpiHiper model
+# that was used for the SMH scenario.
+# However, this and the EpiHiper model have multiple differences.
+
+config transmissibility_scale : float = 0.5
+
+config strain_infectivity : float = 1.2
+config pfizer1_reduction : float = 0.5
+config pfizer2_reduction : float = 0.2
+config jj_reduction : float = 0.4
+
+config strain_switch_prob : float = 0.05
+
+config vhi_compliance: float = 0.75
+config mask_compliance: float = 0.25
+config gsd_compliance: float = 0.15
+config sc_compliance: float = 0.25
+
+config mask_reduction: float = 0.4
+
+config mask_enabled : bool = True
+config sc_enabled : bool = True
+config gsd_enabled : bool = True
+
+global susceptibility_scale : float = 1.0
+
+enum vax_t
+    unvax, vax1, vax2, vaxjj
+end
+
+enum age_group_t
+    a, s, p, o, g
+end
+
+node
+    pid: int node key
+    age_group: age_group_t static
+    fips: int static
+
+    vax_state: vax_t
+    vax1_tick: int
+
+    will_vhi: bool
+    will_gsd: bool
+    will_sc: bool
+    will_mask: bool
+end
+
+edge
+    target_pid: int target node key
+    source_pid: int source node key
+    duration: int static
+    is_school_edge: bool static
+    is_non_home_edge: bool static
+    is_non_essential_edge: bool static
+end
+
+enum c1_state_t
+    S, E, Iasymp, Ipresymp, Isymp, R, Rimmune,
+    strainE, strainIasymp, strainIpresymp, strainIsymp,
+    Hosp, dHosp, Vent, dVent, Death,
+    dMedAttend, hMedAttend, rMedAttend
+end
+
+distribution
+    normal normal_5_1
+        mean = 5, std = 1, min = 0.0
+    end
+
+    discrete dist_0
+        p = 0.175, v = 1
+        p = 0.175, v = 2
+        p = 0.1, v = 3
+        p = 0.1, v = 4
+        p = 0.1, v = 5
+        p = 0.1, v = 6
+        p = 0.1, v = 7
+        p = 0.05, v = 8
+        p = 0.05, v = 9
+        p = 0.05, v = 10
+    end
+
+    normal normal_50_46
+        mean = 5.0, std = 4.6, min = 0.0
+    end
+
+    normal normal_1_02
+        mean = 1, std = 0.2, min = 0.0
+    end
+
+    normal normal_31_37
+        mean = 3.1, std = 3.7, min = 0.0
+    end
+
+    normal normal_21_37
+        mean = 2.1, std = 3.7, min = 0.0
+    end
+
+    normal normal_53_52
+        mean = 5.3, std = 5.2, min = 0.0
+    end
+
+    normal normal_78_63
+        mean = 7.8, std = 6.3, min = 0.0
+    end
+
+    normal normal_68_63
+        mean = 6.8, std = 6.3, min = 0.0
+    end
+
+    normal normal_42_52
+        mean = 4.2, std = 5.2, min = 0.0
+    end
+
+    normal normal_65_49
+        mean = 6.5, std = 4.9, min = 0.0
+    end
+
+    normal normal_55_49
+        mean = 5.5, std = 4.9, min = 0.0
+    end
+end
+
+def transi_p_E_Iasymp(v: node) -> float:
+    switch v.vax_state:
+        case unvax: return 0.35
+        case vax1: return 0.75
+        case vax2: return 0.95
+        case vaxjj: return 0.7
+    end
+end
+
+def transi_p_E_Ipresymp(v: node) -> float:
+    switch v.vax_state:
+        case unvax: return 0.65
+        case vax1: return 0.25
+        case vax2: return 0.05
+        case vaxjj: return 0.3
+    end
+end
+
+def transi_p_0(v: node) -> float:
+    switch v.age_group:
+        case p: return 0.9582
+        case s: return 0.9882
+        case a: return 0.9582
+        case o: return 0.906
+        case g: return 0.754
+    end
+end
+
+def transi_p_1(v: node) -> float:
+    switch v.age_group:
+        case p: return 0.04
+        case s: return 0.01
+        case a: return 0.04
+        case o: return 0.085
+        case g: return 0.195
+    end
+end
+
+def transi_p_2(v: node) -> float:
+    switch v.age_group:
+        case p: return 0.06
+        case s: return 0.06
+        case a: return 0.06
+        case o: return 0.15
+        case g: return 0.225
+    end
+end
+
+def transi_p_3(v: node) -> float:
+    switch v.age_group:
+        case p: return 0.94
+        case s: return 0.94
+        case a: return 0.94
+        case o: return 0.85
+        case g: return 0.775
+    end
+end
+
+def transi_p_4(v: node) -> float:
+    switch v.age_group:
+        case p: return 0.0018
+        case s: return 0.0018
+        case a: return 0.0018
+        case o: return 0.009
+        case g: return 0.051
+    end
+end
+
+def transi_dwell_0(v: node) -> float:
+    switch v.age_group:
+        case p: return normal_50_46()
+        case s: return normal_50_46()
+        case a: return normal_50_46()
+        case o: return normal_53_52()
+        case g: return normal_42_52()
+    end
+end
+
+def transi_dwell_1(v: node) -> float:
+    switch v.age_group:
+        case p: return normal_31_37()
+        case s: return normal_31_37()
+        case a: return normal_31_37()
+        case o: return normal_78_63()
+        case g: return normal_65_49()
+    end
+end
+
+def transi_dwell_2(v: node) -> float:
+    switch v.age_group:
+        case p: return normal_21_37()
+        case s: return normal_21_37()
+        case a: return normal_21_37()
+        case o: return normal_68_63()
+        case g: return normal_55_49()
+    end
+end
+
+contagion c1
+    state type c1_state_t
+
+    transition
+        E -> Iasymp, p = transi_p_E_Iasymp, dwell = normal_5_1
+        E -> Ipresymp, p = transi_p_E_Ipresymp, dwell = 1
+
+        strainE -> strainIasymp, p = transi_p_E_Iasymp, dwell = normal_5_1
+        strainE -> strainIpresymp, p = transi_p_E_Ipresymp, dwell = 1
+
+        Iasymp -> R, p = 1, dwell = normal_5_1
+        Ipresymp -> Isymp, p = 1, dwell = 1
+
+        strainIasymp -> R, p = 1, dwell = normal_5_1
+        strainIpresymp -> strainIsymp, p = 1, dwell = 1
+
+        Isymp -> dMedAttend, p = transi_p_4, dwell = 1
+        Isymp -> hMedAttend, p = transi_p_1, dwell = 1
+        Isymp -> rMedAttend, p = transi_p_0, dwell = dist_0
+
+        strainIsymp -> dMedAttend, p = transi_p_4, dwell = 1
+        strainIsymp -> hMedAttend, p = transi_p_1, dwell = 1
+        strainIsymp -> rMedAttend, p = transi_p_0, dwell = dist_0
+
+        Hosp -> R, p = transi_p_3, dwell = transi_dwell_1
+        Hosp -> Vent, p = transi_p_2, dwell = normal_1_02
+
+        R -> Rimmune, p = 1, dwell = 1
+
+        Vent -> R, p = 1, dwell = transi_dwell_2
+
+        dHosp -> Death, p = transi_p_3, dwell = 1
+        dHosp -> dVent, p = transi_p_2, dwell = 1
+
+        dMedAttend -> Death, p = 0.05, dwell = 1
+        dMedAttend -> dHosp, p = 0.95, dwell = 1
+
+        dVent -> Death, p = 1, dwell = 1
+
+        hMedAttend -> Hosp, p = 1, dwell = transi_dwell_0
+        rMedAttend -> R, p = 1, dwell = normal_5_1
+    end
+
+    transmission
+        Isymp => S -> E
+        Iasymp => S -> E
+        Ipresymp => S -> E
+
+        strainIsymp => S -> strainE
+        strainIasymp => S -> strainE
+        strainIpresymp => S -> strainE
+    end
+
+    susceptibility c1_susceptibility
+    infectivity c1_infectivity
+    transmissibility c1_transmissibility
+    enabled c1_enabled
+end
+
+def c1_susceptibility(v: node) -> float:
+    var s: float = 0.0
+
+    if v.c1.state == S:
+        switch v.vax_state:
+            case unvax: s = 1.0
+            case vax1: s = pfizer1_reduction
+            case vax2: s = pfizer2_reduction
+            case vaxjj: s = jj_reduction
+        end
+    end
+
+    s *= susceptibility_scale
+    return s
+end
+
+def c1_infectivity(v: node) -> float:
+    var i : float = 0.0
+
+    switch v.c1.state:
+        case Ipresymp: i = 0.8
+        case Isymp: i = 1.0
+        case Iasymp: i = 0.5
+
+        case strainIpresymp: i = 0.8 * strain_infectivity
+        case strainIsymp: i = 1.0 * strain_infectivity
+        case strainIasymp: i = 0.5 * strain_infectivity
+    end
+
+    switch v.vax_state:
+        case vax1: i *= pfizer1_reduction
+        case vax2: i *= pfizer2_reduction
+        case vaxjj: i *= jj_reduction
+    end
+
+    if mask_enabled and v.will_mask:
+        i *= mask_reduction
+    end
+
+    return i
+end
+
+def c1_transmissibility(e: edge) -> float:
+    return transmissibility_scale * e.duration / 86400
+end
+
+def disabled_due_to_sc(e: edge) -> bool:
+    if sc_enabled and e.is_school_edge:
+        if e.source_node.will_sc:
+            return True
+        elif e.target_node.will_sc:
+            return True
+        end
+    end
+
+    return False
+end
+
+def disabled_due_to_vhi(e: edge) -> bool:
+    if e.is_non_home_edge:
+        if e.source_node.will_vhi:
+            switch e.source_node.c1.state:
+                case Ipresymp: return True
+                case Isymp: return True
+            end
+        elif e.target_node.will_vhi:
+            switch e.target_node.c1.state:
+                case Ipresymp: return True
+                case Isymp: return True
+            end
+        end
+    end
+
+    return False
+end
+
+def disabled_due_to_gsd(e: edge) -> bool:
+    if gsd_enabled:
+        if e.is_non_essential_edge:
+            if e.source_node.will_gsd or e.target_node.will_gsd:
+                return True
+            end
+        end
+    end
+
+    return False
+end
+
+def c1_enabled(e: edge) -> bool:
+    if disabled_due_to_sc(e):
+        return False
+    elif disabled_due_to_vhi(e):
+        return False
+    elif disabled_due_to_gsd(e):
+        return False
+    end
+
+    return True
+end
+
+def smoothly_increase_infections():
+    if CUR_TICK < 17:
+        susceptibility_scale = 0
+    elif CUR_TICK == 17:
+        susceptibility_scale = 0.333
+    elif CUR_TICK == 18:
+        susceptibility_scale = 0.666
+    else:
+        susceptibility_scale = 1.0
+    end
+end
+
+nodeset vset1
+nodeset vset2
+
+def seed_recovered_tick_age_group():
+    switch CUR_TICK:
+        {% for tick, age_group, count in state_recovered_seeding %}
+        case {{ tick }}:
+            select(vset1, [v: node -> bool](v.c1.state == S and v.age_group == {{ age_group }}))
+            sample(vset2, vset1, {{ count }} , ABSOLUTE)
+            apply(vset2, [v: node]{ v.c1.state = R ; })
+        {% endfor %}
+    end
+end
+
+def seed_recovered_tick_age_group_county():
+    switch CUR_TICK:
+        {% for tick, age_group, fips, count in county_recovered_seeding %}
+        case {{ tick }}:
+            select(vset1, [v: node -> bool](v.c1.state == S and v.age_group == {{ age_group }} and v.fips == {{ fips }}))
+            sample(vset2, vset1, {{ count }}, ABSOLUTE)
+            apply(vset2, [v: node]{ v.c1.state = R ; })
+        {% endfor %}
+    end
+end
+
+def seed_exposed_tick_age_group():
+    switch CUR_TICK:
+        {% for tick, age_group, count in state_exposed_seeding %}
+        case {{ tick }}:
+            select(vset1, [v: node -> bool](v.c1.state == S and v.age_group == {{ age_group }}))
+            sample(vset2, vset1, {{ count }}, ABSOLUTE)
+            apply(vset2, [v: node]{ v.c1.state = E ; })
+        {% endfor %}
+    end
+end
+
+def seed_exposed_tick_age_group_county():
+    switch CUR_TICK:
+        {% for tick, age_group, fips, count in county_exposed_seeding %}
+        case {{ tick }}:
+            select(vset1, [v: node -> bool](v.c1.state == S and v.age_group == {{ age_group }} and v.fips == {{ fips }}))
+            sample(vset2, vset1, {{ count }}, ABSOLUTE)
+            apply(vset2, [v: node]{ v.c1.state = E ; })
+        {% endfor %}
+    end
+end
+
+def vaccinate_using_pfizer():
+    switch CUR_TICK:
+        {% for tick, age_group, count in pfizer_vax_seeding %}
+        case {{ tick }}:
+            select(vset1, [v: node -> bool]( v.vax_state == unvax and v.age_group == {{ age_group }}))
+            sample(vset2, vset1, {{ count }}, ABSOLUTE)
+            apply(vset2, [v: node]{ v.vax_state = vax1 ; v.vax1_tick = CUR_TICK ; })
+        {% endfor %}
+    end
+end
+
+def vaccinate_using_jj():
+    switch CUR_TICK:
+        {% for tick, age_group, count in jj_vax_seeding %}
+        case {{ tick }}:
+            select(vset1, [v: node -> bool]( v.vax_state == unvax and v.age_group == {{ age_group }}))
+            sample(vset2, vset1, {{ count }}, ABSOLUTE)
+            apply(vset2, [v: node]{ v.vax_state = vaxjj ; })
+        {% endfor %}
+    end
+end
+
+def boost_pfizer_vax():
+    select(vset1, [v: node -> bool]( v.vax_state == vax1 and (CUR_TICK - v.vax1_tick) >= 35))
+    apply(vset1, [v: node]{ v.vax_state = vax2 ; })
+end
+
+def sample_node_attributes():
+    sample(vset1, ALL_NODES, vhi_compliance, RELATIVE)
+    apply(vset1, [v: node]{ v.will_vhi = True ; })
+
+    sample(vset1, ALL_NODES, mask_compliance, RELATIVE)
+    apply(vset1, [v: node]{ v.will_mask = True ; })
+
+    sample(vset1, ALL_NODES, gsd_compliance, RELATIVE)
+    apply(vset1, [v: node]{ v.will_gsd = True ; })
+
+    sample(vset1, ALL_NODES, sc_compliance, RELATIVE)
+    apply(vset1, [v: node]{ v.will_sc = True ; })
+end
+
+def introduce_new_strain():
+    select(vset1, [v: node -> bool]( v.c1.state == E ))
+    sample(vset2, vset1, strain_switch_prob, RELATIVE)
+    apply(vset2, [v: node]{ v.c1.state = strainE ; })
+end
+
+def intervene():
+    if CUR_TICK == -1:
+        sample_node_attributes()
+    end
+
+    smoothly_increase_infections()
+
+    seed_recovered_tick_age_group_county()
+    seed_recovered_tick_age_group()
+
+    seed_exposed_tick_age_group_county()
+    seed_exposed_tick_age_group()
+
+    vaccinate_using_pfizer()
+    vaccinate_using_jj()
+    boost_pfizer_vax()
+
+    if CUR_TICK == 24:
+        introduce_new_strain()
+    end
+end
