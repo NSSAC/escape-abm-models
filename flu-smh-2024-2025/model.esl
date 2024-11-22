@@ -1,0 +1,298 @@
+# SMH Flu Round 2024-2025
+
+# These are placeholder values
+# Actual ones are obtained via calibration.
+config baseline_tau: float = 1e-2
+config tau_seasonality_scale: float = 3e-2
+config baseline_seed_prob: float = 1e-4
+
+# The following cdose is obtained by solving the Wells-Riley model
+# p = 1.0 - exp(-cdose * t)
+# where p = 0.9 and t = 2 * 3600
+config cdose: float = 3.198035e-04
+
+config prior_immune_frac: float = 0.3
+
+enum flu_state_t
+    S, # Susceptible
+    E, # Exposed
+    I, # Infectious (symptomatic)
+    A, # Infectious (asymptomatic)
+    M, # Medical visit
+    H, # Hospitalized
+    D, # Dead
+    R  # Recovered
+end
+
+node
+    pid: int node key
+    age: int static
+
+    # The tick at which the node was vaccinated
+    vax_tick: int
+end
+
+edge
+    targetPID: int target node key
+    sourcePID: int source node key
+    duration: int static
+end
+
+global cur_seasonality: float = 0.0
+
+def update_seasonality():
+    switch CUR_TICK:
+        {% for s in seasonality %}
+        case {{ s.tick }}:
+            cur_seasonality = {{ s.scale }}
+        {% endfor %}
+        default:
+            cur_seasonality = 0.0
+    end
+end
+
+# Age specific transition probabilites
+# Default values are created from season 2019-2020 point estimates
+
+config death_prob_0_4: float = 0.014105419450631032
+config death_prob_5_17: float = 0.008310249307479225
+config death_prob_18_49: float = 0.030769230769230767
+config death_prob_50_64: float = 0.06743869209809264
+config death_prob_65p: float = 0.0940625
+
+config hosp_prob_0_4: float = 0.010402990377040823
+config hosp_prob_5_17: float = 0.005279398645783063
+config hosp_prob_18_49: float = 0.015168408224648017
+config hosp_prob_50_64: float = 0.024657764340304027
+config hosp_prob_65p: float = 0.1623129596753741
+
+config mv_prob_0_4: float = 0.6700024837521217
+config mv_prob_5_17: float = 0.5200003041871358
+config mv_prob_18_49: float = 0.3700004796853264
+config mv_prob_50_64: float = 0.4300015167602002
+config mv_prob_65p: float = 0.56000568101122
+
+# Vaccine effectiveness
+config susceptibility_ve: float = 0.30
+config mv_ve: float = 0.40
+
+# Vax effect delay
+config vax_delay: int = 14
+
+# Vaccine immunity waning
+config vax_waning_per_tick: float = 0.9964941427304151
+
+def mv_prob(v: node) -> float:
+    var prob: float = 0.0
+
+    if v.age <= 4:
+        prob = mv_prob_0_4
+    elif v.age <= 17:
+        prob = mv_prob_5_17
+    elif v.age <= 49:
+        prob = mv_prob_18_49
+    elif v.age <= 64:
+        prob = mv_prob_50_64
+    else: # v.age >= 65
+        prob = mv_prob_65p
+    end
+
+    if CUR_TICK >= v.vax_tick + vax_delay:
+        var ve: float = mv_ve * pow(vax_waning_per_tick, CUR_TICK - v.vax_tick - vax_delay)
+        prob = prob * (1.0 - ve)
+    end
+
+    return prob
+end
+
+def not_mv_prob(v: node) -> float:
+    return 1.0 - mv_prob(v)
+end
+
+def hosp_prob(v: node) -> float:
+    var prob: float = 0.0
+
+    if v.age <= 4:
+        prob = hosp_prob_0_4
+    elif v.age <= 17:
+        prob = hosp_prob_5_17
+    elif v.age <= 49:
+        prob = hosp_prob_18_49
+    elif v.age <= 64:
+        prob = hosp_prob_50_64
+    else: # v.age >= 65
+        prob = hosp_prob_65p
+    end
+
+    return prob
+end
+
+def not_hosp_prob(v: node) -> float:
+    return 1.0 - hosp_prob(v)
+end
+
+def death_prob(v: node) -> float:
+    if v.age <= 4:
+        return death_prob_0_4
+    elif v.age <= 17:
+        return death_prob_5_17
+    elif v.age <= 49:
+        return death_prob_18_49
+    elif v.age <= 64:
+        return death_prob_50_64
+    else: # v.age >= 65
+        return death_prob_65p
+    end
+end
+
+def not_death_prob(v: node) -> float:
+    return 1.0 - death_prob(v)
+end
+
+distribution
+    discrete incubation_time
+        p = 0.3, v = 1
+        p = 0.6, v = 2
+        p = 0.1, v = 3
+    end
+
+    discrete recovery_time
+        p = 0.3, v = 3
+        p = 0.4, v = 4
+        p = 0.2, v = 5
+        p = 0.1, v = 6
+    end
+
+    discrete death_time
+        p = 0.3, v = 1
+        p = 0.4, v = 2
+        p = 0.2, v = 3
+        p = 0.1, v = 4
+    end
+
+    discrete hosp_recovery_time
+        p = 0.1, v = 0
+        p = 0.2, v = 1
+        p = 0.6, v = 2
+        p = 0.1, v = 3
+    end
+end
+
+contagion flu
+    state type flu_state_t
+
+    transition
+        E -> I, p = 0.67, dwell = incubation_time
+        E -> A, p = 0.33, dwell = incubation_time
+
+        A -> R, p = 1, dwell = recovery_time
+
+        I -> M, p = mv_prob, dwell = 1
+        I -> R, p = not_mv_prob, dwell = recovery_time
+
+        M -> H, p = hosp_prob, dwell = 1
+        M -> R, p = not_hosp_prob, dwell = recovery_time
+
+        H -> D, p = death_prob, dwell = death_time
+        H -> R, p = not_death_prob, dwell = hosp_recovery_time
+    end
+
+    transmission
+        A => S -> E
+        I => S -> E
+    end
+
+    susceptibility flu_susceptibility
+    infectivity flu_infectivity
+    transmissibility flu_transmissibility
+    enabled flu_enabled
+end
+
+def flu_susceptibility(v: node) -> float:
+    var s: float = 0.0
+
+    if v.flu.state == S:
+        s = 1.0
+    end
+
+    if CUR_TICK >= v.vax_tick + vax_delay:
+        var ve: float = susceptibility_ve * pow(vax_waning_per_tick, CUR_TICK - v.vax_tick - vax_delay)
+        s = s * (1.0 - ve)
+    end
+
+    return s
+end
+
+def flu_infectivity(v: node) -> float:
+    var i: float = 0.0
+
+    switch v.flu.state:
+        case I: i = 1.0
+        case A: i = 0.5
+    end
+
+    return i
+end
+
+def flu_transmissibility(e: edge) -> float:
+    var tau: float = baseline_tau + tau_seasonality_scale * cur_seasonality
+    tau *= (1.0 - exp(-cdose * e.duration))
+    return tau
+end
+
+def flu_enabled(e: edge) -> bool:
+    return True
+end
+
+# We use generic names for nodesets.
+# The will be reused in the different interventions.
+nodeset nodeset1, nodeset2
+
+def init_prior_immune_nodes():
+    select(nodeset1, [n: node -> bool](n.flu.state == S))
+    sample(nodeset2, nodeset1, prior_immune_frac, RELATIVE)
+    apply(nodeset2, [n: node]{ n.flu.state = R ; })
+end
+
+def seed_contagion():
+    select(nodeset1, [n: node -> bool](n.flu.state == S))
+    sample(nodeset2, nodeset1, baseline_seed_prob, RELATIVE)
+    apply(nodeset2, [n: node]{ n.flu.state = E ; })
+end
+
+# VAX schedule to be provided by SMH
+def vaccinate_nodes():
+    var count: int = 0
+
+    {% for s in vax_schedule %}
+    if (CUR_TICK == {{ s.tick }}):
+        select(nodeset1, [v: node -> bool](
+            {{ s.min_age }} <= v.age and v.age < {{ s.max_age }}
+        ))
+        count = {{ s.new_vax_frac }} * len(nodeset1)
+
+        select(nodeset1, [v: node -> bool](
+            v.vax_tick == 0 and
+            (v.flu.state == S or v.flu.state == R) and
+            {{ s.min_age }} <= v.age and v.age < {{ s.max_age }}
+        ))
+        sample(nodeset2, nodeset1, count , ABSOLUTE)
+        apply(nodeset2, [v: node]{ v.vax_tick = CUR_TICK ; })
+    end
+    {% endfor %}
+
+end
+
+def intervene():
+    update_seasonality()
+
+    if CUR_TICK == 0:
+        init_prior_immune_nodes()
+    end
+
+    if CUR_TICK > 0:
+        seed_contagion()
+    end
+
+    vaccinate_nodes()
+end
